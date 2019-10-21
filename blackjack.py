@@ -33,9 +33,9 @@ class Card:
         self.face_up = False
         
 class Player:
-    def __init__(self, name, hand=set([]), cash = start_cash, dealer=False):
+    def __init__(self, name, cash = start_cash, dealer=False):
         self.name = name
-        self.hand = hand
+        self.hand = set([])
         self.cash = cash
         self.dealer = dealer
     
@@ -179,22 +179,20 @@ class Blackjack:
     def generateCard(self, deck):
         card = choice(tuple(deck))
         deck.remove(card)
-        print('gen ' + card.getName())
         return card
     
     def dealHands(self, players, deck):
         for player in players:
+            player.clearHand()
             if player.dealer:
                 downCard = self.generateCard(deck)
                 downCard.setFaceDown()
                 player.addCard(downCard)
                 player.addCard(self.generateCard(deck))
-                print('if ' + player.name + str(player.getHand()))
             
             else:
                 player.addCard(self.generateCard(deck))
                 player.addCard(self.generateCard(deck))
-                print('else ' + player.name + str(player.getHand()))
                 
     def placeBets(self, players):
         message = ''
@@ -206,15 +204,17 @@ class Blackjack:
                 self.displayMessage(message)
                 bet = input(f'{players[i].getName()}, how much would you like to bet? ')
                 try:
-                    if int(bet) >= self.settings.getMinBet():
+                    if int(bet) >= self.settings.getMinBet() and int(bet) <= players[i].getCash():
                         bets[i] = int(bet)
+                    elif int(bet) >= self.settings.getMinBet():
+                        message = 'You cannot afford that bet.'
                     else:
                         message = f'Not at this table! The minimum bet is {self.settings.getMinBet()}.'
                 except:
                     message = 'Your bet has to be a number!'
         return bets
     
-    def playHand(self, player, deck, bet, split_count=0):
+    def playHand(self, player, deck, bet, turn_counter, split_count=0):
         '''
         This is the complicated one:
         playHand(player, deck, bet, split_count=0) ... Its typing is as follows:
@@ -223,11 +223,10 @@ class Blackjack:
         This list will have up to 4 elements (number of split hands)
         '''
         hand_info = []
-        
+        message = ''
         # First, ask if they'd like to split
         cards = list(player.getHand())
-        print('Start of PlayHand' + cards)
-        card_values = list(map(lambda card: card.getValue(), cards))
+        card_values = list(map(lambda card: card.value, cards))
         if card_values[0] == card_values[1] and player.getCash() >= bet*2 and split_count <= 3:
             valid_input = False
             while not valid_input:
@@ -268,6 +267,7 @@ class Blackjack:
                     doubled_down = True
                     bet *= 2
                     player.addCard(self.generateCard(deck))
+                    self.displayTable(player, turn_counter)
                     hand_value, bust = player.checkHandValue()
                     hand_info.append([hand_value, bet, bust, blackjack])
                     return hand_info
@@ -281,7 +281,8 @@ class Blackjack:
         while not bust and not blackjack and not doubled_down:
             valid_input = False   
             while not valid_input:
-                move = input('Hit or stay?').lower()
+                self.displayTable(player, turn_counter)
+                move = input('Hit or stay? ').lower()
                 if move == 'stay':
                     valid_input = True
                     hand_info.append([hand_value, bet, bust, blackjack])
@@ -292,16 +293,20 @@ class Blackjack:
                     hand_value, bust = player.checkHandValue()
                 else:
                     message = 'Please answer with hit or stay.'
-                    
+        
+        self.displayTable(player, turn_counter)
         hand_info.append([hand_value, bet, bust, blackjack])          
         return hand_info
     
-    def dealerPlays(self, player, deck):
-        dealer_hand_info = list(player.checkHandValue()).append(False)
+    def dealerPlays(self, player, deck, turn_counter):
+        dealer_hand_info = list(player.checkHandValue())
+        dealer_hand_info.append(False)
+        self.displayTable(player, turn_counter)
         if dealer_hand_info[0] == 21:
             dealer_hand_info[2] = True
         while dealer_hand_info[0] <= 16:
             player.addCard(self.generateCard(deck))
+            self.displayTable(player, turn_counter)
             dealer_hand_info[0], dealer_hand_info[1] = player.checkHandValue()
         return dealer_hand_info
                 
@@ -314,10 +319,10 @@ class Blackjack:
         while turn_counter < len(players):
 #             clear_output()
             self.displayTable(players, turn_counter)
-            round_results[turn_counter] = self.playHand(players[turn_counter], deck, bets[turn_counter])
+            round_results[turn_counter] = self.playHand(players[turn_counter], deck, bets[turn_counter], turn_counter)
             turn_counter += 1
         turn_counter = 0
-        round_results[0] = self.dealerPlays()
+        round_results[0] = self.dealerPlays(players[0], deck, turn_counter)
         
         # Tabulate outcomes of bets
         for k, v in round_results.items():
@@ -329,38 +334,44 @@ class Blackjack:
                     # Busted
                     if hand[2] == True:
                         players[k].setCash(-hand[1])
-                        
+                        message = f'Oh no, you busted! You\'re losing that ${hand[1]}.'
                     # Blackjack    
                     elif hand[3] == True:
                         
                         # Dealer got blackjack
                         if round_results[0][2] == True:
+                            message = f'Not so good, not so bad. It\'s  push!'
                             continue
                         else:
                             players[k].setCash(hand[1])
+                            message = f'Hell yeah, blackjack! No better place to spend that ${hand[1]} winning than at the table!'
                     
                     # No bust or blackjack
                     else:
                         
                         # Dealer busted
-                        if round_result[0][1] == True:
+                        if round_results[0][1] == True:
                             players[k].setCash(hand[1])
+                            message = f'Screw the dealer! Can\'t say the ${hand[1]} winning is any less sweet!'
                             
                         # Dealer got blackjack    
-                        elif round_result[0][2] == True:
+                        elif round_results[0][2] == True:
                             players[k].setCash(-hand[1])
-                            
+                            message = f'Oh no, the dealer beat you! That means you\'re losing that ${hand[1]}.'
                         # Lastly, comparing sums    
                         else:
-                            if hand[0] > round_result[0][0]:
+                            if hand[0] > round_results[0][0]:
                                 players[k].setCash(hand[1])
+                                message = f'You beat the dealer! ${hand[1]} goes to you.'
                                 
-                            elif hand[0] == round_result[0][0]:
+                            elif hand[0] == round_results[0][0]:
+                                message = f'Not so good, not so bad. It\'s  push!'
                                 continue
                                 
                             else:
                                 players[k].setCash(-hand[1])
-                                
+                                message = f'Oh no, the dealer beat you! That means you\'re losing that ${hand[1]}.'
+        self.displayMessage(message)
         
 
     def playGame(self):
@@ -374,6 +385,7 @@ class Blackjack:
                 deck = self.instantiateDeck()
                 players = self.instantiatePlayers()
                 while play_again:
+                    valid_input = False
                     if len(deck) < 182:
                         deck = self.instantiateDeck()
                     self.playRound(players, deck)
@@ -404,15 +416,33 @@ class Blackjack:
     
     def displayTable(self, players=[], turn_counter=0):
         print('BLACKJACK')
-        for player in players:
-            print(f'{player.getName()}: ${player.getCash()} \n Hand: ')
-            for card in player.getHand():
-                if not card.face_up:
-                    print('Hidden')
+        if isinstance(players, list):
+            for player in players:
+                if player.dealer:
+                    print(f'{player.getName()} \n Hand: ')
+                    for card in player.getHand():
+                        if not card.face_up:
+                            print('Hidden')
+                        else:
+                            print(card.getName())
+                    print('\n')
                 else:
-                    print(card.getName())
-        if turn_counter > 0:   
-            print(f'{players[turn_counter].getName()}, it\'s your turn!')
+                    print(f'{player.getName()}: ${player.getCash()} \n Hand: ')
+                    for card in player.getHand():
+                        print(card.getName())
+                    print('\n')
+                    
+            if turn_counter > 0:   
+                print(f'{players[turn_counter].getName()}, it\'s your turn!')
+                    
+        else:
+            print(f'{players.getName()}: ${players.getCash()} \n Hand: ')
+            for card in players.getHand():
+                print(card.getName())
+            print('\n')
+            if turn_counter > 0:
+                print(f'{players.getName()}, it\'s your turn!')
+    
             
     def displayMessage(self, message=''):
         print('\n\t' + message)
